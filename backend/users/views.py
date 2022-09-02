@@ -1,43 +1,81 @@
-from django.shortcuts import render
-from rest_framework import filters, status, viewsets, mixins
-from .serializers import (UserMeSerializer, UserSerializer)
-from users.models import User
-from rest_framework.pagination import PageNumberPagination
-from .permissions import AdminPermission, AuthorOrReadonly, ReadOnly
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.shortcuts import get_object_or_404
+from djoser.views import UserViewSet
+from rest_framework import status
+from rest_framework.generics import ListAPIView, get_object_or_404
+from rest_framework.permissions import (IsAuthenticated,
+                                        IsAuthenticatedOrReadOnly)
 from rest_framework.response import Response
-from rest_framework.decorators import action
-from djoser.views import TokenCreateView
-from .serializers import LoginSerializer
 from rest_framework.views import APIView
 
+from api.pagination import CustomPageNumberPagination
+from .models import Follow, User
+from .serializers import CustomUserSerializer, FollowSerializer
 
-class UserViewSet(viewsets.ModelViewSet):
+
+class CustomUserViewSet(UserViewSet):
+    """
+    ViewSet для работы с пользователями.
+    """
     queryset = User.objects.all()
-    serializer_class = UserSerializer
-    #lookup_field = 'username'
-    #pagination_class = PageNumberPagination
-    #permission_classes = (AdminPermission,)
-    #filter_backends = (filters.SearchFilter,)
-    #search_fields = ('=username',)
+    serializer_class = CustomUserSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
-class TokenCreateWithCheckBlockStatusView(TokenCreateView):
-    def _action(self, serializer):
-        return super()._action(serializer)
 
-class LoginAPIView(APIView):
-    permission_classes = (AllowAny,)
-    #renderer_classes = (UserJSONRenderer,)
-    serializer_class = LoginSerializer
+class FollowViewSet(APIView):
+    """
+    APIView для добавления и удаления подписки на автора
+    """
+    serializer_class = FollowSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomPageNumberPagination
 
-    def post(self, request):
-        user = request.data.get('user', {})
+    def post(self, request, *args, **kwargs):
+        user_id = self.kwargs.get('user_id')
+        if user_id == request.user.id:
+            return Response(
+                {'error': 'Нельзя подписаться на себя'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if Follow.objects.filter(
+                user=request.user,
+                author_id=user_id
+        ).exists():
+            return Response(
+                {'error': 'Вы уже подписаны на пользователя'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        author = get_object_or_404(User, id=user_id)
+        Follow.objects.create(
+            user=request.user,
+            author_id=user_id
+        )
+        return Response(
+            self.serializer_class(author, context={'request': request}).data,
+            status=status.HTTP_201_CREATED
+        )
 
-        # Обратите внимание, что мы не вызываем метод save() сериализатора, как
-        # делали это для регистрации. Дело в том, что в данном случае нам
-        # нечего сохранять. Вместо этого, метод validate() делает все нужное.
-        serializer = self.serializer_class(data=user)
-        serializer.is_valid(raise_exception=True)
+    def delete(self, request, *args, **kwargs):
+        user_id = self.kwargs.get('user_id')
+        get_object_or_404(User, id=user_id)
+        subscription = Follow.objects.filter(
+            user=request.user,
+            author_id=user_id
+        )
+        if subscription:
+            subscription.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(
+            {'error': 'Вы не подписаны на пользователя'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class FollowListView(ListAPIView):
+    """
+    APIView для просмотра подписок.
+    """
+    serializer_class = FollowSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomPageNumberPagination
+
+    def get_queryset(self):
+        return User.objects.filter(following__user=self.request.user)

@@ -1,70 +1,92 @@
 from rest_framework import serializers
-from .models import User
-from django.contrib.auth import authenticate
+from djoser.serializers import UserCreateSerializer, UserSerializer
 
-class UserSerializer(serializers.ModelSerializer):
+from .models import Follow, User
+from recipes.models import Recipe
+
+
+class CustomUserCreateSerializer(UserCreateSerializer):
+    """
+    Сериализатор для регистрации пользователя.
+    """
+    class Meta:
+        model = User
+        fields = (
+            'email',
+            'id',
+            'username',
+            'first_name',
+            'last_name',
+            'password'
+        )
+        extra_kwargs = {'password': {'write_only': True}}
+
+    def create(self, validated_data):
+        user = User.objects.create(
+            email=validated_data['email'],
+            username=validated_data['username'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name']
+        )
+        user.set_password(validated_data['password'])
+        user.save()
+        return user
+
+
+class CustomUserSerializer(UserSerializer):
+    """
+    Сериализатор для пользователя.
+    get_is_subscribed показывает,
+    подписан ли текущий пользователь на просматриваемого.
+    """
+    is_subscribed = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ('email', 'id', 'username', 'first_name', 'last_name',)
+        fields = (
+            'email',
+            'id',
+            'username',
+            'first_name',
+            'last_name',
+            'is_subscribed')
 
-class UserMeSerializer(UserSerializer):
+    def get_is_subscribed(self, obj):
+        user = self.context.get('request').user
+        if user.is_anonymous:
+            return False
+        return Follow.objects.filter(user=user, author=obj.id).exists()
+
+
+class ShortRecipeSerializer(serializers.ModelSerializer):
+    """
+    Сериализатор для краткого отображения сведений о рецепте
+    """
+    class Meta:
+        model = Recipe
+        fields = ('id', 'name', 'image', 'cooking_time')
+
+
+class FollowSerializer(CustomUserSerializer):
+    """
+    Сериализатор для вывода подписок пользователя
+    """
+    recipes = serializers.SerializerMethodField(read_only=True)
+    recipes_count = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = '__all__'
+        fields = ('email', 'id', 'username', 'first_name', 'last_name',
+                  'is_subscribed', 'recipes', 'recipes_count')
 
-class LoginSerializer(serializers.Serializer):
-    email = serializers.CharField(max_length=255)
-    username = serializers.CharField(max_length=255, read_only=True)
-    password = serializers.CharField(max_length=128, write_only=True)
-    token = serializers.CharField(max_length=255, read_only=True)
+    @staticmethod
+    def get_recipes_count(obj):
+        return obj.recipes.count()
 
-    def validate(self, data):
-        # В методе validate мы убеждаемся, что текущий экземпляр
-        # LoginSerializer значение valid. В случае входа пользователя в систему
-        # это означает подтверждение того, что присутствуют адрес электронной
-        # почты и то, что эта комбинация соответствует одному из пользователей.
-        email = data.get('email', None)
-        password = data.get('password', None)
-
-        # Вызвать исключение, если не предоставлена почта.
-        if email is None:
-            raise serializers.ValidationError(
-                'An email address is required to log in.'
-            )
-
-        # Вызвать исключение, если не предоставлен пароль.
-        if password is None:
-            raise serializers.ValidationError(
-                'A password is required to log in.'
-            )
-
-        # Метод authenticate предоставляется Django и выполняет проверку, что
-        # предоставленные почта и пароль соответствуют какому-то пользователю в
-        # нашей базе данных. Мы передаем email как username, так как в модели
-        # пользователя USERNAME_FIELD = email.
-        user = authenticate(username=email, password=password)
-
-        # Если пользователь с данными почтой/паролем не найден, то authenticate
-        # вернет None. Возбудить исключение в таком случае.
-        if user is None:
-            raise serializers.ValidationError(
-                'A user with this email and password was not found.'
-            )
-
-        # Django предоставляет флаг is_active для модели User. Его цель
-        # сообщить, был ли пользователь деактивирован или заблокирован.
-        # Проверить стоит, вызвать исключение в случае True.
-        if not user.is_active:
-            raise serializers.ValidationError(
-                'This user has been deactivated.'
-            )
-
-        # Метод validate должен возвращать словать проверенных данных. Это
-        # данные, которые передются в т.ч. в методы create и update.
-        return {
-            'email': user.email,
-            'username': user.username,
-            'token': user.token
-        }
+    def get_recipes(self, obj):
+        request = self.context.get('request')
+        recipes = obj.recipes.all()
+        recipes_limit = request.query_params.get('recipes_limit')
+        if recipes_limit:
+            recipes = recipes[:int(recipes_limit)]
+        return ShortRecipeSerializer(recipes, many=True).data
