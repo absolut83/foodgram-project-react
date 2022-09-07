@@ -54,3 +54,10 @@ POSTGRES_PASSWORD=postgres
 DB_HOST=db 
 DB_PORT=5432 
 ```
+
+## Об авторе
+### Виталий Яремчук
+
+absolut83@mail.ru
+
+Telegram - @kuvalda684
