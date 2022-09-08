@@ -301,7 +301,7 @@ class RecipeManipulationSerializer(serializers.ModelSerializer):
         ingredients = self.initial_data['ingredients']
         if not ingredients or len(ingredients) == 0:
             raise serializers.ValidationError(
-                {'ingredients': 'Укажите название и количество ингредиентов'}
+                'Укажите название и количество ингредиентов'
             )
         ingredients_id = []
         for item in ingredients:
@@ -311,13 +311,19 @@ class RecipeManipulationSerializer(serializers.ModelSerializer):
             )
             if int(item.get('amount')) < 1:
                 raise serializers.ValidationError(
-                    ({'amount': 'Укажите необходимое количество ингредиента}'})
+                    'Укажите необходимое количество ингредиента}'
                 )
             if ingredient in ingredients_id:
                 raise serializers.ValidationError(
-                    ({'ingredients': 'Ингредиент уже использован.'})
+                    'Ингредиент уже использован.'
                 )
             ingredients_id.append(ingredient)
+
+        cooking_time = data['cooking_time']
+        if int(cooking_time) <= 0:
+            raise serializers.ValidationError(
+                'Время приготовления должно быть больше 0!'
+            )
         return data
 
     def create_ingredients(self, recipe, ingredients):
