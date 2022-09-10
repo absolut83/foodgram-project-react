@@ -1,11 +1,11 @@
 from django.shortcuts import get_object_or_404
 from djoser.serializers import UserCreateSerializer, UserSerializer
 from drf_extra_fields.fields import Base64ImageField
+from rest_framework import exceptions, serializers, status, validators
+
 from recipes.models import (AddAmount, Favorite, Ingredient, Recipe,
                             ShoppingCart, Tag)
-from rest_framework import exceptions, serializers, status, validators
 from users.models import Subscription, User
-
 from .validators import password_verification
 
 
@@ -311,7 +311,7 @@ class RecipeManipulationSerializer(serializers.ModelSerializer):
             )
             if int(item.get('amount')) < 1:
                 raise serializers.ValidationError(
-                    'Укажите необходимое количество ингредиента}'
+                    'Укажите необходимое количество ингредиента'
                 )
             if ingredient in ingredients_id:
                 raise serializers.ValidationError(
@@ -321,9 +321,9 @@ class RecipeManipulationSerializer(serializers.ModelSerializer):
 
         cooking_time = data['cooking_time']
         if int(cooking_time) <= 0:
-            raise serializers.ValidationError(
-                'Время приготовления должно быть больше 0!'
-            )
+            raise serializers.ValidationError({
+                'cooking_time': 'Время приготовления должно быть больше 0!'
+            })
         return data
 
     def create_ingredients(self, recipe, ingredients):
